@@ -1,0 +1,1157 @@
+{
+  "info": {
+    "name": "Observability Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Run 'Auth > Login' first; the JWT is stored in {{token}}. Roles: viewer < operator < admin. The ingestion request goes straight to the ingestion service (set {{ingestBase}} if it is not on 127.0.0.1:8101)."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "username",
+      "value": "operator"
+    },
+    {
+      "key": "password",
+      "value": "Operator#dev-1"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": "1"
+    },
+    {
+      "key": "traceId",
+      "value": ""
+    },
+    {
+      "key": "ingestApiKey",
+      "value": "change-me"
+    },
+    {
+      "key": "correlationId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (operator)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('login ok', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('token', j.data.access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Current user",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "me"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login with bad password (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"username\": \"{{username}}\",\n  \"password\": \"wrong\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 + error envelope', () => { pm.response.to.have.status(401); pm.expect(pm.response.json().error.source).to.eql('gateway'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Sample app & failure scenarios",
+      "item": [
+        {
+          "name": "List scenarios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/scenarios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "scenarios"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create order - normal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Scenario",
+                "value": "normal"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"customer_id\": \"c-1\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-1\",\n      \"quantity\": 1,\n      \"unit_price\": 19.99\n    }\n  ],\n  \"currency\": \"USD\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('orderId', pm.response.json().data.order_id);",
+                  "pm.collectionVariables.set('correlationId', pm.response.headers.get('X-Correlation-ID') || '');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create order - slow_payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Scenario",
+                "value": "slow_payment"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"customer_id\": \"c-1\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-1\",\n      \"quantity\": 1,\n      \"unit_price\": 19.99\n    }\n  ],\n  \"currency\": \"USD\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create order - payment_failure (expect 502 downstream/payment-service)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Scenario",
+                "value": "payment_failure"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"customer_id\": \"c-1\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-1\",\n      \"quantity\": 1,\n      \"unit_price\": 19.99\n    }\n  ],\n  \"currency\": \"USD\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('502 from payment-service', () => { pm.response.to.have.status(502); const e = pm.response.json().error; pm.expect(e.source).to.eql('downstream'); pm.expect(e.service).to.eql('payment-service'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create order - notification_timeout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Scenario",
+                "value": "notification_timeout"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"customer_id\": \"c-1\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-1\",\n      \"quantity\": 1,\n      \"unit_price\": 19.99\n    }\n  ],\n  \"currency\": \"USD\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create order - invalid_downstream_response",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Scenario",
+                "value": "invalid_downstream_response"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"customer_id\": \"c-1\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-1\",\n      \"quantity\": 1,\n      \"unit_price\": 19.99\n    }\n  ],\n  \"currency\": \"USD\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create order - intermittent_unavailability",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Scenario",
+                "value": "intermittent_unavailability"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"customer_id\": \"c-1\",\n  \"items\": [\n    {\n      \"sku\": \"SKU-1\",\n      \"quantity\": 1,\n      \"unit_price\": 19.99\n    }\n  ],\n  \"currency\": \"USD\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "orders",
+                "{{orderId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "List orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/sample/orders?page=1&page_size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sample",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Traces",
+      "item": [
+        {
+          "name": "Search traces",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/traces?status=ERROR&page_size=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "traces"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "ERROR"
+                },
+                {
+                  "key": "page_size",
+                  "value": "25"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Find trace by correlation id (sets traceId)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/traces?correlation_id={{correlationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "traces"
+              ],
+              "query": [
+                {
+                  "key": "correlation_id",
+                  "value": "{{correlationId}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const d=pm.response.json().data; if(d&&d.length){pm.collectionVariables.set('traceId', d[0].trace_id);}",
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trace detail (span tree + logs + diagnostic)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/traces/{{traceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "traces",
+                "{{traceId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Logs",
+      "item": [
+        {
+          "name": "Search logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs?severity=ERROR&q=payment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "severity",
+                  "value": "ERROR"
+                },
+                {
+                  "key": "q",
+                  "value": "payment"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Error patterns",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/logs/patterns",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "logs",
+                "patterns"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dependencies",
+      "item": [
+        {
+          "name": "Dependency graph",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dependencies?window_minutes=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dependencies"
+              ],
+              "query": [
+                {
+                  "key": "window_minutes",
+                  "value": "60"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Service dependencies",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dependencies/order-service",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dependencies",
+                "order-service"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Metrics",
+      "item": [
+        {
+          "name": "Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/metrics/summary?window_minutes=60",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "metrics",
+                "summary"
+              ],
+              "query": [
+                {
+                  "key": "window_minutes",
+                  "value": "60"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Per-service",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/metrics/services",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "metrics",
+                "services"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Time series",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/metrics/timeseries?service_name=payment-service&metric_name=request.duration_ms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "metrics",
+                "timeseries"
+              ],
+              "query": [
+                {
+                  "key": "service_name",
+                  "value": "payment-service"
+                },
+                {
+                  "key": "metric_name",
+                  "value": "request.duration_ms"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Latency percentiles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/metrics/latency",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "metrics",
+                "latency"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "List alerts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/alerts?status=active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alerts"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alert rules",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/alerts/rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alerts",
+                "rules"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get alert",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/alerts/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alerts",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Acknowledge alert",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/alerts/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alerts",
+                "1"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"status\": \"acknowledged\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Upsert alert rule (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/alerts/rules",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "alerts",
+                "rules"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"service_name\": \"payment-service\",\n  \"alert_type\": \"error_rate\",\n  \"threshold\": 0.2,\n  \"severity\": \"critical\",\n  \"enabled\": true\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Root cause",
+      "item": [
+        {
+          "name": "List reports",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/diagnostics?classification=confirmed_failure",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "diagnostics"
+              ],
+              "query": [
+                {
+                  "key": "classification",
+                  "value": "confirmed_failure"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Report with evidence",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/diagnostics/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "diagnostics",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Analyse a trace",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/diagnostics/analyze/{{traceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "diagnostics",
+                "analyze",
+                "{{traceId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "item": [
+        {
+          "name": "Platform health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/system/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "system",
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('envelope', () => { const j = pm.response.json(); pm.expect(j).to.have.property('data'); pm.expect(j).to.have.property('meta'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Gateway request log (admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/system/requests",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "system",
+                "requests"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Gateway liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Gateway readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ready"
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Telemetry ingestion (direct, X-API-Key)",
+      "item": [
+        {
+          "name": "Ingest log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-API-Key",
+                "value": "{{ingestApiKey}}"
+              }
+            ],
+            "url": {
+              "raw": "http://127.0.0.1:8101/api/v1/telemetry/logs",
+              "host": [
+                "127.0.0.1:8101"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "telemetry",
+                "logs"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "body": "{\n  \"service_name\": \"external-app\",\n  \"severity\": \"ERROR\",\n  \"message\": \"demo failure\",\n  \"timestamp\": \"2026-10-16T10:00:00Z\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

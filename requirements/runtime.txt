@@ -1,0 +1,17 @@
+# Runtime dependencies shared by every Python service image (versions are the ones the test-suite ran against).
+fastapi==0.143.2
+starlette==1.8.0
+uvicorn==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.16.0
+SQLAlchemy==2.1.4
+PyMySQL==1.2.3
+cryptography==50.0.2
+alembic==1.20.0
+httpx==0.28.1
+pika==1.4.4
+PyJWT==2.15.1
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-instrumentation-fastapi==0.66b1
+opentelemetry-instrumentation-httpx==0.66b1

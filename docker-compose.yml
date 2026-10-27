@@ -1,0 +1,341 @@
+# Observability platform - local stack.   cp .env.example .env && docker compose up --build
+name: observability-platform
+
+x-service-env: &service-env
+  ENVIRONMENT: ${ENVIRONMENT:-dev}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  ENABLE_DOCS: ${ENABLE_DOCS:-true}
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:?set INTERNAL_API_TOKEN in .env}
+
+x-broker: &broker amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/%2F
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: ["/tmp"]
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      INGESTION_DB_PASSWORD: ${INGESTION_DB_PASSWORD:?}
+      TRACE_DB_PASSWORD: ${TRACE_DB_PASSWORD:?}
+      LOG_DB_PASSWORD: ${LOG_DB_PASSWORD:?}
+      METRICS_DB_PASSWORD: ${METRICS_DB_PASSWORD:?}
+      RCA_DB_PASSWORD: ${RCA_DB_PASSWORD:?}
+      GATEWAY_DB_PASSWORD: ${GATEWAY_DB_PASSWORD:?}
+      ORDER_DB_PASSWORD: ${ORDER_DB_PASSWORD:?}
+      PAYMENT_DB_PASSWORD: ${PAYMENT_DB_PASSWORD:?}
+      NOTIFICATION_DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+00:00"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [backend]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?}
+    ports:
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks: [backend]
+
+  ingestion-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: ingestion-service
+        PACKAGE: ingestion_service
+    image: obs/ingestion-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://ingestion:${INGESTION_DB_PASSWORD:?}@mysql:3306/ingestion_db?charset=utf8mb4
+      INGEST_API_KEYS: ${INGEST_API_KEYS:?}
+      BROKER_URL: *broker
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8101:8000"
+    networks: [backend]
+
+  trace-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: trace-service
+        PACKAGE: trace_service
+    image: obs/trace-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://trace:${TRACE_DB_PASSWORD:?}@mysql:3306/trace_db?charset=utf8mb4
+      BROKER_URL: *broker
+      TRACE_COMPLETION_WAIT_SECONDS: ${TRACE_COMPLETION_WAIT_SECONDS:-10}
+      SLOW_SPAN_MS: ${SLOW_SPAN_MS:-1000}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8102:8000"
+    networks: [backend]
+
+  log-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: log-service
+        PACKAGE: log_service
+    image: obs/log-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://logs:${LOG_DB_PASSWORD:?}@mysql:3306/log_db?charset=utf8mb4
+      BROKER_URL: *broker
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8103:8000"
+    networks: [backend]
+
+  metrics-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: metrics-service
+        PACKAGE: metrics_service
+    image: obs/metrics-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://metrics:${METRICS_DB_PASSWORD:?}@mysql:3306/metrics_db?charset=utf8mb4
+      BROKER_URL: *broker
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8104:8000"
+    networks: [backend]
+
+  rca-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: rca-service
+        PACKAGE: rca_service
+    image: obs/rca-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://rca:${RCA_DB_PASSWORD:?}@mysql:3306/rca_db?charset=utf8mb4
+      BROKER_URL: *broker
+      TRACE_SERVICE_URL: http://trace-service:8000
+      LOG_SERVICE_URL: http://log-service:8000
+      METRICS_SERVICE_URL: http://metrics-service:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      trace-service:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8105:8000"
+    networks: [backend]
+
+  query-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: query-service
+        PACKAGE: query_service
+    image: obs/query-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: none://stateless
+      TRACE_SERVICE_URL: http://trace-service:8000
+      LOG_SERVICE_URL: http://log-service:8000
+      METRICS_SERVICE_URL: http://metrics-service:8000
+      RCA_SERVICE_URL: http://rca-service:8000
+    ports:
+      - "127.0.0.1:8106:8000"
+    networks: [backend]
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: payment-service
+        PACKAGE: payment_service
+    image: obs/payment-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://payments:${PAYMENT_DB_PASSWORD:?}@mysql:3306/payment_db?charset=utf8mb4
+      DEFAULT_SCENARIO: ${DEFAULT_SCENARIO:-normal}
+      INGESTION_SERVICE_URL: http://ingestion-service:8000
+      INGESTION_API_KEY: ${INGESTION_API_KEY:?}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      ingestion-service:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8202:8000"
+    networks: [backend]
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: notification-service
+        PACKAGE: notification_service
+    image: obs/notification-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://notifications:${NOTIFICATION_DB_PASSWORD:?}@mysql:3306/notification_db?charset=utf8mb4
+      DEFAULT_SCENARIO: ${DEFAULT_SCENARIO:-normal}
+      INGESTION_SERVICE_URL: http://ingestion-service:8000
+      INGESTION_API_KEY: ${INGESTION_API_KEY:?}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      ingestion-service:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8203:8000"
+    networks: [backend]
+
+  order-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: order-service
+        PACKAGE: order_service
+    image: obs/order-service:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://orders:${ORDER_DB_PASSWORD:?}@mysql:3306/order_db?charset=utf8mb4
+      DEFAULT_SCENARIO: ${DEFAULT_SCENARIO:-normal}
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      INGESTION_SERVICE_URL: http://ingestion-service:8000
+      INGESTION_API_KEY: ${INGESTION_API_KEY:?}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      ingestion-service:
+        condition: service_started
+    ports:
+      - "127.0.0.1:8201:8000"
+    networks: [backend]
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args:
+        SERVICE: api-gateway
+        PACKAGE: api_gateway
+    image: obs/api-gateway:latest
+    <<: *hardening
+    environment:
+      <<: *service-env
+      DATABASE_URL: mysql+pymysql://gateway:${GATEWAY_DB_PASSWORD:?}@mysql:3306/gateway_db?charset=utf8mb4
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (>= 32 chars)}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?}
+      SEED_OPERATOR_PASSWORD: ${SEED_OPERATOR_PASSWORD:?}
+      SEED_VIEWER_PASSWORD: ${SEED_VIEWER_PASSWORD:?}
+      INGESTION_API_KEY: ${INGESTION_API_KEY:?}
+      QUERY_SERVICE_URL: http://query-service:8000
+      RCA_SERVICE_URL: http://rca-service:8000
+      METRICS_SERVICE_URL: http://metrics-service:8000
+      INGESTION_SERVICE_URL: http://ingestion-service:8000
+      TRACE_SERVICE_URL: http://trace-service:8000
+      LOG_SERVICE_URL: http://log-service:8000
+      ORDER_SERVICE_URL: http://order-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+    depends_on:
+      mysql:
+        condition: service_healthy
+      query-service:
+        condition: service_started
+      ingestion-service:
+        condition: service_started
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    networks: [backend, frontend]
+
+  console:
+    build:
+      context: ./frontend
+    image: obs/console:latest
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: ["/tmp"]
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    ports:
+      - "${CONSOLE_PORT:-3000}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    networks: [frontend]
+
+networks:
+  backend: {}
+  frontend: {}
+
+volumes:
+  mysql-data: {}
+  rabbitmq-data: {}

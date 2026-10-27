@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "obs-common"
+version = "1.0.0"
+description = "Shared cross-cutting library for the observability platform services (config, DB, API envelope, broker, HTTP client, OpenTelemetry helpers)."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi",
+  "sqlalchemy>=2.0",
+  "pydantic>=2",
+  "pydantic-settings",
+  "httpx",
+  "pika",
+  "PyJWT",
+  "opentelemetry-api",
+  "opentelemetry-sdk",
+  "opentelemetry-instrumentation-fastapi",
+  "opentelemetry-instrumentation-httpx",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
